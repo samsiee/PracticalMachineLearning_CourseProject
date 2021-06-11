@@ -1,0 +1,186 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Sammy"
+date: "6/9/2021"
+output: html_document
+font: "Times"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Introduction
+
+In this project we will be building a model to predict the method in which unilateral dumbbell bicep curls were performed. The methods are determined by classes (labelled "classe" in the dataset) and include the following:
+
+* Class A - exactly according to the specification
+* Class B - throwing the elbows to the front 
+* Class C - lifting the dumbbell only halfway 
+* Class D - lowering the dumbbell only halfway 
+* Class E - throwing the hips to the front
+
+Data was collected from 6 participants' measurements from accelerometers on the belt, forearm, arm, and dumbell.
+
+###### Training Data:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+###### Testing Data:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+
+### I. Environment Preparation
+
+```{r directory, include=FALSE}
+setwd("~/Documents/Precision Cancer Medicine/R/Coursera_R/Course_Scripts/8. Practical Machine Learning")
+```
+
+```{r library, message=FALSE}
+library(ggplot2)
+library(caret)
+library(lattice)
+library(rpart)
+library(rattle)
+library(randomForest)
+library(gbm)
+set.seed(1004)
+```
+
+
+### II. Data Processing and Cleaning
+#### II.A. Download Data
+Download both training and testing CSV files.
+
+Training
+```{r}
+trainURL <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(trainURL, destfile = "pmltraining.csv", method = "curl")
+training <- read.csv("pmltraining.csv", sep = ",", header = TRUE, na.strings = "NA")
+```
+
+Testing
+```{r}
+testURL <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(testURL, destfile = "pmltesting.csv", method = "curl")
+testing <- read.csv("pmltesting.csv", sep = ",", header = TRUE, na.strings = "NA")
+```
+
+
+#### II.B. Cleaning the Data
+The training dataset will be partitioned 70% to create a validation set with the outcome of interest "classe". The testing set will only be used in the final prediction in order to prevent bias. 
+
+```{r}
+inTrain <- createDataPartition(y = training$classe, p = 0.7, list = FALSE)
+training <- training[inTrain, ]
+validation <- training[-inTrain, ]
+names(training)
+```
+
+The dataset has 160 variables. There are 13737, 4123 and 20 observations for the training, validation and testing set.
+
+```{r}
+data.frame(dim(training), dim(validation), dim(testing), row.names = c("observations", "variables"))
+```
+
+In order to simplify the training and validation dataset we will first remove variables that mostly (90%) have NA values.
+
+```{r}
+training <- training[,colMeans(is.na(training)) < 0.9]
+validation <- validation[,colMeans(is.na(validation)) < 0.9]
+data.frame(dim(training), dim(validation), dim(testing), row.names = c("observations", "variables"))
+```
+
+Next, we will remove near zero variance variable. 
+```{r}
+NZV <- nearZeroVar(training)
+training <- training[,-NZV]
+validation <- validation[,-NZV]
+data.frame(dim(training), dim(validation),dim(testing), row.names = c("observations", "variables"))
+```
+
+Additionally, we will remove the first seven columns that are used for sample identification which are, as expected, not necessary for further prediction analysis. 
+
+```{r}
+training <- training[, -(1:7)]
+validation  <- validation[, -(1:7)]
+data.frame(dim(training), dim(validation), dim(testing), row.names = c("observations", "variables"))
+```
+
+The final dataset has 52 variables for the training and validation dataset. Additionally, observations in each dataset has reduced to 9619 and 2896 for training and validation datasets, respectively. The testing set has not been further processed and will be used only at the final prediction.
+
+### III. Prediction Model Building
+In this section, we will test out different prediction models in order to determine the model with the highest accuracy. The models that we will build are Classification Tree(RP), Random Forest (RF) and Gradient Boosting (GBM)
+
+First, we train the dataset against the observation classe. Next, we will predict the model against the validation dataset and retrieve an "Accuracy" measurement. 
+
+#### III.A Classification/Decision Tree
+##### III.A.a. Training
+```{r}
+fitRP <- train(classe ~., method = "rpart", data = training)
+fancyRpartPlot(fitRP$finalModel)
+```
+
+##### III.A.b. Predicting
+```{r}
+predRP <- predict(fitRP, newdata = validation)
+cmRP <- confusionMatrix(predRP, factor(validation$classe))
+cmRP$overall[["Accuracy"]]
+```
+
+The accuracy for the decision tree model is 0.5428177 and the out-of sample error is 0.4571823. 
+
+#### III.B. Gradient Boosting (GBM)
+##### III.B.a Training
+```{r}
+fitGBM <- train(classe ~., method = "gbm", data = training, verbose = FALSE)
+plot(fitGBM)
+```
+
+##### III.B.b. Predicting
+```{r}
+predGBM <- predict(fitGBM, newdata = validation)
+cmGBM <- confusionMatrix(predGBM, factor(validation$classe))
+cmGBM$overall[["Accuracy"]]
+```
+
+The accuracy for the GBM model is 0.9716851. There is an out-of-sample error rate of 0.0283149. 
+
+#### Random Forest
+##### III.C.a. Training
+```{r}
+fitRF <- train(classe ~., method = "rf", data = training)
+plot(fitRF)
+```
+
+
+##### III.C.b. Predicting
+```{r}
+predRF <- predict(fitRF, newdata = validation)
+cmRF <- confusionMatrix(predRF, factor(validation$classe))
+cmRF$overall[["Accuracy"]]
+```
+
+The accuracy for the Random Forest Model is very high at 1. This could partially be due to overfitting. The out-of-sample error is therefore "0". 
+
+
+##### III.D. The Best Fitting Model
+
+Here, we have identified that the model with the highest Accuracy score is the Random Forest model. Thus, we will use this model in order to predict on the test dataset.  
+```{r}
+DecisionTree <- cmRP$overall[["Accuracy"]]
+GBM <- cmGBM$overall[["Accuracy"]]
+RandomForest <- cmRF$overall[["Accuracy"]]
+data.frame(DecisionTree, GBM, RandomForest, row.names = "Accuracy")
+```
+
+
+### IV. Prediction on the Test Dataset
+```{r}
+testpred <- predict(fitRF, newdata = testing)
+print(testpred)
+```
+
+The prediction was performed using the RandomForest model on the untouched dataset "testing". The predictions for the 20 observations are:  A B A A E D B A A B C B A E E A B B B . 
+
+
